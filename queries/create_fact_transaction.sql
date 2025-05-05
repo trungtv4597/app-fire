@@ -1,0 +1,10 @@
+CREATE TABLE fact_transaction (
+	id SERIAL PRIMARY KEY,
+	created_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	transaction_date DATE NOT NULL DEFAULT CURRENT_DATE,
+	description TEXT,
+	amount NUMERIC NOT NULL,
+	category_id INTEGER NOT NULL,
+	FOREIGN KEY (category_id) REFERENCES dim_category(id)
+)

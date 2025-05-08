@@ -1,13 +1,12 @@
 import streamlit as st
-import psycopg2
-from psycopg2 import Error
+from psycopg2 import Error, pool
 from datetime import datetime
 
 @st.cache_resource
 def init_connection():
     secrets = st.secrets["postgres"]
     try:
-        return psycopg2.pool.SimpleConnectionPool(
+        return pool.SimpleConnectionPool(
             minconn=1,
             maxconn=20,
             dbname=secrets["DB_NAME"],
@@ -76,6 +75,7 @@ def get_categories(bucket_id):
 # Insert expense into Postgres
 def insert_expense(transaction_date, description, amount, category_id):
     conn = get_db_connection()
+    cash_out_action_id = 4
     if conn:
         try:
             with conn.cursor() as cur:
@@ -83,9 +83,9 @@ def insert_expense(transaction_date, description, amount, category_id):
                 # negative_amount = -abs(float(amount))
                 cur.execute(
                     """
-                    INSERT INTO fact_transaction (transaction_date, description, amount, category_id)
-                    VALUES (%s, %s, %s, %s)
-                    """, (transaction_date, str(description), float(amount), int(category_id))
+                    INSERT INTO fact_transaction (transaction_date, description, amount, category_id, updated_time, action_id)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """, (transaction_date, str(description), float(amount), int(category_id), datetime.now(), int(cash_out_action_id))
                 )
                 conn.commit()
                 return True
@@ -116,11 +116,6 @@ def main():
     with st.form("Expense Form", clear_on_submit=True):
         st.header("Record New Expense")
 
-        # Basic form fields
-        transaction_date = st.date_input("Transaction Date", value=datetime.now())
-        description = st.text_input("Description", placeholder="Enter expense description")
-        amount = st.number_input("Amount", min_value=0.0, format="%0.0f", step=1000.0)
-
         # Select the bucket
         bucket_col, button_col = st.columns([3, 3])
         with bucket_col:
@@ -141,6 +136,11 @@ def main():
         else:
             category_name = st.selectbox("Category", list(st.session_state.category_dict.keys()), key="category_select")
             category_id = st.session_state.category_dict[category_name]
+  
+        # Basic form fields
+        transaction_date = st.date_input("Transaction Date", value=datetime.now())
+        description = st.text_input("Description", placeholder="Enter expense description")
+        amount = st.number_input("Amount", min_value=0.0, format="%0.0f", step=1000.0)
 
         # Submit button
         submitted = st.form_submit_button("Record")

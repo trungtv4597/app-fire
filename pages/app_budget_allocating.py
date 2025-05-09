@@ -1,43 +1,15 @@
 import streamlit as st
-from psycopg2 import Error, pool
+from psycopg2 import Error
 from datetime import datetime
 import pandas as pd
 
-# Initialize connection pool
-@st.cache_resource
-def init_connection():
-    secrets = st.secrets["postgres"]
-    try:
-        return pool.SimpleConnectionPool(
-            minconn=1,
-            maxconn=20,
-            dbname=secrets["DB_NAME"],
-            user=secrets["DB_USER"],
-            password=secrets["DB_PASSWORD"],
-            host=secrets["DB_HOST"],
-            port=secrets["DB_PORT"]
-        )
-    except Error as e:
-        st.error(f"Error initializing connection pool: {e}")
-        return None
+from utils import init_connection, get_db_connection, release_connection, check_login
 
 db_pool = init_connection()
 
-# Get database connection from pool
-def get_db_connection():
-    if db_pool is None:
-        st.error("Connection pool not initialized!")
-        return None
-    return db_pool.getconn()
-
-# Return connection to pool
-def release_connection(conn):
-    if db_pool is not None and conn is not None:
-        db_pool.putconn(conn)
-
 # Get categories from dim_category
 def get_categories():
-    conn = get_db_connection()
+    conn = get_db_connection(db_pool)
     if conn:
         try:
             with conn.cursor() as cur:
@@ -48,12 +20,12 @@ def get_categories():
             st.error(f"Failed to fetch categories: {e}")
             return {}
         finally:
-            release_connection(conn)
+            release_connection(db_pool, conn)
     return {}
 
 # Delete existing budget allocations for the current month
-def delete_existing_allocations(transaction_date):
-    conn = get_db_connection()
+def delete_existing_allocations(transaction_date, user_id):
+    conn = get_db_connection(db_pool)
     if conn:
         try:
             with conn.cursor() as cur:
@@ -65,8 +37,9 @@ def delete_existing_allocations(transaction_date):
                     WHERE EXTRACT(YEAR FROM transaction_date) = %s
                     AND EXTRACT(MONTH FROM transaction_date) = %s
                     AND description LIKE %s
+                    AND user_id = %s
                     """,
-                    (year, month, 'Budget allocation for%')
+                    (year, month, 'Budget allocation for%', user_id)
                 )
                 conn.commit()
                 return True
@@ -74,26 +47,26 @@ def delete_existing_allocations(transaction_date):
             st.error(f"Failed to delete existing allocations: {e}")
             return False
         finally:
-            release_connection(conn)
+            release_connection(db_pool, conn)
     return False
 
 # Insert budget allocations into fact_transaction
-def insert_budget_allocations(allocations, transaction_date):
-    conn = get_db_connection()
+def insert_budget_allocations(allocations, transaction_date, user_id):
+    conn = get_db_connection(db_pool)
     cash_in_action_id = 3
     if conn:
         try:
             with conn.cursor() as cur:
-                if not delete_existing_allocations(transaction_date):
+                if not delete_existing_allocations(transaction_date, user_id):
                     return False
                 for category_name, (category_id, percentage, amount) in allocations.items():
                     description = f"Budget allocation for {category_name} ({percentage:.1f}%)"
                     cur.execute(
                         """
-                        INSERT INTO fact_transaction (transaction_date, description, amount, category_id, updated_time, action_id)
-                        VALUES (%s, %s, %s, %s, %s, %s)
+                        INSERT INTO fact_transaction (transaction_date, description, amount, category_id, updated_time, action_id, user_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
                         """,
-                        (transaction_date, str(description), float(amount), int(category_id), datetime.now(), int(cash_in_action_id))
+                        (transaction_date, str(description), float(amount), int(category_id), datetime.now(), int(cash_in_action_id), int(user_id))
                     )
                 conn.commit()
                 return True
@@ -101,11 +74,14 @@ def insert_budget_allocations(allocations, transaction_date):
             st.error(f"Failed to save budget allocations: {e}")
             return False
         finally:
-            release_connection(conn)
+            release_connection(db_pool, conn)
     return False
 
 # Streamlit UI
 def main():
+
+    check_login()
+
     st.title("Monthly Budget Allocator")
 
     # Initialize session state
@@ -197,7 +173,8 @@ def main():
             transaction_date = datetime.now().date()
             success = insert_budget_allocations(
                 st.session_state.allocations,
-                transaction_date
+                transaction_date,
+                st.session_state.user_id
             )
             if success:
                 st.success("Budget allocations saved successfully!")

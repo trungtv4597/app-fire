@@ -1,42 +1,14 @@
 import streamlit as st
-from psycopg2 import Error, pool
+from psycopg2 import Error
 from datetime import datetime
 
-@st.cache_resource
-def init_connection():
-    secrets = st.secrets["postgres"]
-    try:
-        return pool.SimpleConnectionPool(
-            minconn=1,
-            maxconn=20,
-            dbname=secrets["DB_NAME"],
-            user=secrets["DB_USER"],
-            password=secrets["DB_PASSWORD"],
-            host=secrets["DB_HOST"],
-            port=secrets["DB_PORT"]
-        )
-    except Error as e:
-        st.error(f"Error initializing connection pool: {e}")
-        return None
-    
-# Initialize connection pool
+from utils import init_connection, get_db_connection, release_connection, check_login
+
 db_pool = init_connection()
 
-# Get databse connection from pool
-def get_db_connection():
-    if db_pool is None:
-        st.error("Connection pool not initialized!")
-        return None
-    return db_pool.getconn()
-
-# Return connection to pool
-def release_connection(conn):
-    if db_pool is not None and conn is not None:
-        db_pool.putconn(conn)
-    
 # Get buckets from dim_bucket
 def get_buckets():
-    conn = get_db_connection()
+    conn = get_db_connection(db_pool)
     if conn:
         try:
             with conn.cursor() as cur:
@@ -47,13 +19,13 @@ def get_buckets():
             st.error(f"Failed to fetch buckets: {e}")
             return {}
         finally:
-            release_connection(conn=conn)
+            release_connection(db_pool, conn)
     return {}
     
 # Get categories from dim_category
 def get_categories(bucket_id):
     """"""
-    conn = get_db_connection()
+    conn = get_db_connection(db_pool)
     if conn:
         try:
             with conn.cursor() as cur:
@@ -69,12 +41,27 @@ def get_categories(bucket_id):
             st.error(f"Failed to fetch categories: {e}")
             return {}
         finally:
-            release_connection(conn=conn)
+            release_connection(db_pool, conn)
+    return {}
+
+def get_locations():
+    conn = get_db_connection(db_pool)
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT location_name as name, id FROM dim_location ORDER BY 1")
+                locations = cur.fetchall()
+                return {name: id for name, id in locations}
+        except Error as e:
+            st.error(f"Failed to fetch locations: {e}")
+            return {}
+        finally:
+            release_connection(db_pool, conn)
     return {}
     
 # Insert expense into Postgres
-def insert_expense(transaction_date, description, amount, category_id):
-    conn = get_db_connection()
+def insert_expense(transaction_date, description, amount, category_id, user_id, location_id):
+    conn = get_db_connection(db_pool)
     cash_out_action_id = 4
     if conn:
         try:
@@ -83,9 +70,9 @@ def insert_expense(transaction_date, description, amount, category_id):
                 # negative_amount = -abs(float(amount))
                 cur.execute(
                     """
-                    INSERT INTO fact_transaction (transaction_date, description, amount, category_id, updated_time, action_id)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    """, (transaction_date, str(description), float(amount), int(category_id), datetime.now(), int(cash_out_action_id))
+                    INSERT INTO fact_transaction (transaction_date, description, amount, category_id, updated_time, action_id, user_id, location_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (transaction_date, str(description), float(amount), int(category_id), datetime.now(), int(cash_out_action_id), int(user_id), int(location_id))
                 )
                 conn.commit()
                 return True
@@ -93,11 +80,13 @@ def insert_expense(transaction_date, description, amount, category_id):
             st.error(f"Failed to record expense: {e}")
             return False
         finally:
-            release_connection(conn=conn)
+            release_connection(db_pool, conn)
     return False
 
 # Streamlit UI
 def main():
+    check_login()
+
     st.title("Expense Noting Application")
 
     # Initialize session state
@@ -106,11 +95,12 @@ def main():
     if "category_dict" not in st.session_state:
         st.session_state.category_dict = {}
 
-    # Get buckets
+    # Get buckets and locations
     bucket_dict = get_buckets()
     if not bucket_dict:
         st.error("No buckets available. Please add buckets to the database.")
         return
+    location_dict = get_locations()
 
     # Expense submission form
     with st.form("Expense Form", clear_on_submit=True):
@@ -136,7 +126,16 @@ def main():
         else:
             category_name = st.selectbox("Category", list(st.session_state.category_dict.keys()), key="category_select")
             category_id = st.session_state.category_dict[category_name]
-  
+
+        # Select location
+        if not location_dict:
+            st.error("No locations available.")
+            location_name = st.selectbox("Location", ["None"], key="location_select")
+            location_id = None
+        else:
+            location_name = st.selectbox("Location", list(location_dict.keys()), key="location_select")
+            location_id = location_dict[location_name]
+
         # Basic form fields
         transaction_date = st.date_input("Transaction Date", value=datetime.now())
         description = st.text_input("Description", placeholder="Enter expense description")
@@ -152,11 +151,13 @@ def main():
                 st.error("Amount must be greater than 0")
             elif not category_id:
                 st.error("Please select a valid category")
+            elif not location_id:
+                st.error("Please select a valid location")
             else:
-                result = insert_expense(transaction_date, description, amount, category_id)
+                user_id = st.session_state.user_id
+                result = insert_expense(transaction_date, description, amount, category_id, user_id, location_id)
                 if result:
                     st.success(f"Successfully recorded <{amount}> for <{category_name}>: {description}")
-
 
 if __name__ == "__main__":
     main()

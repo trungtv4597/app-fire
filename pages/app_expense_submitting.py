@@ -23,7 +23,7 @@ def get_buckets():
     return {}
     
 # Get categories from dim_category
-def get_categories(bucket_id):
+def get_categories(bucket_id, user_id):
     """"""
     conn = get_db_connection(db_pool)
     if conn:
@@ -32,9 +32,9 @@ def get_categories(bucket_id):
                 cur.execute("""
                             SELECT category_name as name, id 
                             FROM dim_category 
-                            WHERE bucket_id = %s
+                            WHERE bucket_id = %s and user_id = %s
                             ORDER BY 1
-                            """, (bucket_id,))
+                            """, (bucket_id, user_id, ))
                 categories = cur.fetchall()
                 return {name: id for name, id in categories}
         except Error as e:
@@ -44,12 +44,12 @@ def get_categories(bucket_id):
             release_connection(db_pool, conn)
     return {}
 
-def get_locations():
+def get_locations(user_id):
     conn = get_db_connection(db_pool)
     if conn:
         try:
             with conn.cursor() as cur:
-                cur.execute("SELECT location_name as name, id FROM dim_location ORDER BY 1")
+                cur.execute("""SELECT location_name as name, id FROM dim_location WHERE user_id = %s ORDER BY 1""", (user_id,))
                 locations = cur.fetchall()
                 return {name: id for name, id in locations}
         except Error as e:
@@ -70,9 +70,9 @@ def insert_expense(transaction_date, description, amount, category_id, user_id, 
                 # negative_amount = -abs(float(amount))
                 cur.execute(
                     """
-                    INSERT INTO fact_transaction (transaction_date, description, amount, category_id, updated_time, action_id, user_id, location_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    """, (transaction_date, str(description), float(amount), int(category_id), datetime.now(), int(cash_out_action_id), int(user_id), int(location_id))
+                    INSERT INTO fact_transaction (updated_time, transaction_date, description, amount, category_id, action_id, user_id, location_id)
+                    VALUES (NOW(), %s, %s, %s, %s, %s, %s, %s)
+                    """, (transaction_date, str(description), float(amount), int(category_id), int(cash_out_action_id), int(user_id), int(location_id))
                 )
                 conn.commit()
                 return True
@@ -80,12 +80,14 @@ def insert_expense(transaction_date, description, amount, category_id, user_id, 
             st.error(f"Failed to record expense: {e}")
             return False
         finally:
-            release_connection(db_pool, conn)
+            release_connection(db_pool, conn)   
     return False
 
 # Streamlit UI
 def main():
     check_login()
+
+    user_id = st.session_state.user_id
 
     st.title("Expense Noting Application")
 
@@ -100,10 +102,10 @@ def main():
     if not bucket_dict:
         st.error("No buckets available. Please add buckets to the database.")
         return
-    location_dict = get_locations()
+    location_dict = get_locations(user_id=user_id)
 
     # Expense submission form
-    with st.form("Expense Form", clear_on_submit=True):
+    with st.form("Expense Form"):
         st.header("Record New Expense")
 
         # Select the bucket
@@ -116,7 +118,7 @@ def main():
         # Update categories when bucket is selected
         if selected_bucket:
             st.session_state.bucket_id = bucket_dict[bucket_name]
-            st.session_state.category_dict = get_categories(st.session_state.bucket_id)
+            st.session_state.category_dict = get_categories(st.session_state.bucket_id, user_id)
 
         # Get categories for selected bucket
         if not st.session_state.category_dict:
@@ -145,10 +147,10 @@ def main():
         submitted = st.form_submit_button("Record")
 
         if submitted:
-            if not description:
-                st.error("Description is required")
-            elif amount <= 0:
+            if amount <= 0:
                 st.error("Amount must be greater than 0")
+            # elif not description:
+            #     st.error("Description is required")
             elif not category_id:
                 st.error("Please select a valid category")
             elif not location_id:

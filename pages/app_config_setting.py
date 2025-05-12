@@ -22,16 +22,16 @@ def get_buckets():
     return {}
 
 # Postgres operations
-def insert_category(category_name, bucket_id):
+def insert_category(category_name, bucket_id, user_id):
     conn = get_db_connection(db_pool)
     if conn:
         try:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO dim_category (category_name, bucket_id)
-                    VALUES (%s, %s)
-                    """, (str(category_name), int(bucket_id))
+                    INSERT INTO dim_category (updated_time, category_name, bucket_id, user_id)
+                    VALUES (NOW(), %s, %s, %s)
+                    """, (str(category_name), int(bucket_id), int(user_id))
                 )
                 conn.commit()
                 return True
@@ -50,8 +50,8 @@ def insert_location(location_name, user_id):
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO dim_location (location_name, updated_time, updated_by_id)
-                    VALUES (%s, NOW(), %s)
+                    INSERT INTO dim_location (updated_time, location_name, user_id)
+                    VALUES (NOW(), %s, %s)
                     """, (str(location_name), int(user_id))
                 )
                 conn.commit()
@@ -68,6 +68,8 @@ def insert_location(location_name, user_id):
 def main():
     check_login()
 
+    user_id = st.session_state.user_id
+
     st.title("Configuration Setting")
 
     st.header("Add New Location")
@@ -79,7 +81,6 @@ def main():
             if not location_name:
                 st.error("Please enter a location name.")
             else:
-                user_id = st.session_state.user_id
                 if insert_location(location_name, user_id):
                     st.success(f"Location '{location_name}' added successfully!")
                 else:
@@ -101,8 +102,8 @@ def main():
             if not category_name:
                 st.error("Please enter a category name.")
             else:
-                if insert_category(category_name=category_name, bucket_id=bucket_dict.get(selected_bucket)):
-                    st.success(f"Category <{category_name}> added successfully!")
+                if insert_category(category_name=category_name, bucket_id=bucket_dict.get(selected_bucket), user_id=user_id):
+                    st.success(f"Category <{category_name}> of Bucket <{selected_bucket}> added successfully!")
                 else:
                     pass
 

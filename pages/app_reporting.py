@@ -1,5 +1,6 @@
 import streamlit as st
 import plotly.graph_objects as go
+import pandas as pd
 from datetime import datetime
 from psycopg2 import Error
 
@@ -7,33 +8,34 @@ from utils import init_connection, get_db_connection, release_connection, check_
 
 db_pool = init_connection()
 
-# Fetch budget and expense data for the current month
-def fetch_budget_data(user_id):
+# Fetch budget and expense data for the pivot table
+def fetch_expense_data(user_id):
     conn = get_db_connection(db_pool)
     if conn:
         try:
             cur = conn.cursor()
             sql_query = """
-            SELECT c.id as category_id, c.category_name,
-                COALESCE(SUM(CASE WHEN t.action_id = 3 THEN t.amount ELSE 0 END), 0) AS budget,
-                COALESCE(SUM(CASE WHEN t.action_id = 4 THEN t.amount ELSE 0 END), 0) AS total_expenses,
-                COALESCE(SUM(CASE WHEN t.action_id = 3 THEN t.amount ELSE 0 END), 0) -
-                COALESCE(SUM(CASE WHEN t.action_id = 4 THEN t.amount ELSE 0 END), 0) AS remaining
+            SELECT 
+                b.bucket_name,
+                c.category_name,
+                a.action_name,
+                SUM(t.amount * a.multiply_factor) AS amount
             FROM fact_transaction AS t
             LEFT JOIN dim_category AS c ON c.id = t.category_id
+            LEFT JOIN dim_bucket AS b ON b.id = c.bucket_id
             LEFT JOIN dim_user AS u ON u.id = t.user_id
-            WHERE
-            u.id = %s
-            AND t.transaction_date >= DATE_TRUNC('month', CURRENT_DATE)
-            AND t.transaction_date < DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month'
-            GROUP BY 1, 2
-            HAVING SUM(CASE WHEN t.action_id = 3 THEN 1 ELSE 0 END) > 0
+            LEFT JOIN dim_action AS a ON a.id = t.action_id
+            WHERE 
+                b.bucket_type = 'Expense'
+                AND u.id = %s
+                AND t.transaction_date >= DATE_TRUNC('month', CURRENT_DATE)
+                AND t.transaction_date < DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month'
+            GROUP BY 1, 2, 3
             """
             cur.execute(sql_query, (user_id,))
             results = cur.fetchall()
             cur.close()
-            # Convert Decimal to float for Plotly compatibility
-            return [(row[0], row[1], float(row[2]), float(row[3]), float(row[4])) for row in results]
+            return [(row[0], row[1], row[2], float(row[3])) for row in results]
         except Error as e:
             st.error(f"Database error: {e}")
             return []
@@ -43,48 +45,79 @@ def fetch_budget_data(user_id):
 
 # Main Streamlit app
 def main():
-
     check_login()
 
     st.title(f"Budget Overview for {datetime.now().strftime('%B %Y')}")
-    
-    results = fetch_budget_data(user_id=st.session_state.user_id)
-    
-    if results:
-        for _, category_name, budget, total_expenses, remaining in results:
-            st.subheader(category_name)
+
+    # Create tabs for Expense and Gauge Charts
+    expense_tab, _, _ = st.tabs(["Expense", "Balance Sheet", "FIRE"])
+
+    # Expense Tab with Pivot Table
+    with expense_tab:
+        st.header("Expense Tracking")
+        results = fetch_expense_data(user_id=st.session_state.user_id)
+        
+        if results:
+            # Create DataFrame
+            df = pd.DataFrame(results, columns=['Bucket', 'Category', 'Action', 'Amount'])
             
-            # Create gauge chart
-            fig = go.Figure(go.Indicator(
-                mode="gauge+number",
-                value=total_expenses,
-                number={'suffix': " spent"},
-                domain={'x': [0, 1], 'y': [0, 1]},
-                gauge={
-                    'axis': {'range': [0, max(budget, total_expenses)]},
-                    'bar': {'color': "darkblue"},
-                    'steps': [
-                        {'range': [0, budget * 0.7], 'color': "green"},
-                        {'range': [budget * 0.7, budget * 0.9], 'color': "yellow"},
-                        {'range': [budget * 0.9, budget], 'color': "red"}
-                    ],
-                    'threshold': {
-                        'line': {'color': "red", 'width': 4},
-                        'thickness': 0.75,
-                        'value': budget
-                    }
-                }
-            ))
+            # Pivot the data
+            pivot_df = df.pivot_table(
+                index=['Bucket', 'Category'],
+                columns='Action',
+                values='Amount',
+                fill_value=0
+            ).reset_index()
             
-            st.plotly_chart(fig, use_container_width=True, key=f"plotly_chart_{category_name}")
+            # Rename columns based on action names (assuming action_id 3 is Budget, 4 is Expense)
+            pivot_df.columns.name = None
+            action_map = {name: name for name in pivot_df.columns[2:]}  # Keep original names
+            for col in pivot_df.columns[2:]:
+                if 'cash-in' in col.lower():  # Flexible matching for 'Cash In'
+                    action_map[col] = 'Budget'
+                elif 'cash-out' in col.lower():  # Flexible matching for 'Cash Out'
+                    action_map[col] = 'Expenses'
+            pivot_df = pivot_df.rename(columns=action_map)
             
-            # Display budget status
-            if remaining >= 0:
-                st.write(f"Budget: {budget:,.0f} | Remaining: {remaining:,.0f}")
-            else:
-                st.write(f"Budget: {budget:,.0f} | Over by: {-remaining:,.0f}")
-    else:
-        st.write("No budget categories found for the current month.")
+            # Ensure Budget and Expenses columns exist
+            if 'Budget' not in pivot_df.columns:
+                pivot_df['Budget'] = 0.0
+            if 'Expenses' not in pivot_df.columns:
+                pivot_df['Expenses'] = 0.0
+            
+            # Calculate Remaining and Percentage Spent
+            pivot_df['Remaining'] = pivot_df['Budget'] + pivot_df['Expenses']
+            pivot_df['Percentage Spent'] = (
+                (abs(pivot_df['Expenses']) / pivot_df['Budget'] ) * 100
+            )
+            # .where(pivot_df['Budget'] > 0, 1)
+            
+            # Format numbers for display
+            display_df = pivot_df.copy()
+            display_df['Budget'] = display_df['Budget'].apply(lambda x: f"{x:,.0f}")
+            display_df['Expenses'] = display_df['Expenses'].apply(lambda x: f"{x:,.0f}")
+            display_df['Remaining'] = display_df['Remaining'].apply(lambda x: f"{x:,.0f}")
+            display_df['Percentage Spent'] = display_df['Percentage Spent'].apply(lambda x: f"{x:.2f}%")
+            
+            # Display pivot table
+            st.dataframe(
+                display_df,
+                use_container_width=True
+            )
+            
+            # Add summary metrics
+            total_budget = pivot_df['Budget'].sum()
+            total_expenses = pivot_df['Expenses'].sum()
+            total_remaining = total_budget + total_expenses
+            percentage_spent = (total_expenses / total_budget * 100) if total_budget > 0 else 0
+            
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Total Budget", f"{total_budget:,.0f}")
+            col2.metric("Total Expenses", f"{total_expenses:,.0f}")
+            col3.metric("Total Remaining", f"{total_remaining:,.0f}")
+            col4.metric("Percentage Spent", f"{percentage_spent:.2f}%")
+        else:
+            st.info("No expense data found for the current month.")
 
 if __name__ == "__main__":
     main()

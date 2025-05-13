@@ -204,10 +204,7 @@ def main():
         df = pd.DataFrame(data)
         st.dataframe(
             df,
-            use_container_width=True,
-            column_config={
-                "Amount (VND)": st.column_config.NumberColumn(format="%d")
-            }
+            use_container_width=True
         )
 
         # Section 2: by Bucket

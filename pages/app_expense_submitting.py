@@ -104,21 +104,32 @@ def main():
         return
     location_dict = get_locations(user_id=user_id)
 
-    # Expense submission form
-    with st.form("Expense Form"):
-        st.header("Record New Expense")
-
-        # Select the bucket
-        bucket_col, button_col = st.columns([3, 3])
-        with bucket_col:
-            bucket_name = st.selectbox("Bucket", list(bucket_dict.keys()), key="bucket_select")
-        with button_col:
-            selected_bucket = st.form_submit_button("Select Bucket")
-
-        # Update categories when bucket is selected
-        if selected_bucket:
+    # Bucket selection (outside the form)
+    st.header("Select Bucket")
+    bucket_col, button_col = st.columns([3, 3])
+    with bucket_col:
+        bucket_name = st.selectbox("Bucket", list(bucket_dict.keys()), key="bucket_select")
+    with button_col:
+        if st.button("Select Bucket", key="select_bucket_button"):
             st.session_state.bucket_id = bucket_dict[bucket_name]
             st.session_state.category_dict = get_categories(st.session_state.bucket_id, user_id)
+
+    # Expense submission form
+    with st.form("Expense Form", clear_on_submit=True):
+        st.header("Record New Expense")
+
+        # # Select the bucket
+        # bucket_col, button_col = st.columns([3, 3])
+        # with bucket_col:
+        #     bucket_name = st.selectbox("Bucket", list(bucket_dict.keys()), key="bucket_select")
+        # with button_col:
+        #     selected_bucket = st.form_submit_button("Select Bucket")
+
+        # # Update categories when bucket is selected
+        # if selected_bucket:
+        #     st.session_state.bucket_id = bucket_dict[bucket_name]
+        #     st.session_state.category_dict = get_categories(st.session_state.bucket_id, user_id)
+
 
         # Get categories for selected bucket
         if not st.session_state.category_dict:
@@ -159,7 +170,7 @@ def main():
                 user_id = st.session_state.user_id
                 result = insert_expense(transaction_date, description, amount, category_id, user_id, location_id)
                 if result:
-                    st.success(f"Successfully recorded <{amount}> for <{category_name}>: {description}")
+                    st.success(f"Successfully recorded {amount:,.0f} for <{category_name}>: {description}")
 
 if __name__ == "__main__":
     main()

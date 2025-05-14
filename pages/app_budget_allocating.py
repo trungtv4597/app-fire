@@ -8,6 +8,53 @@ from utils import init_connection, get_db_connection, release_connection, check_
 
 db_pool = init_connection()
 
+# Function to fetch net income for the selected month
+def get_net_income_for_month(budget_date, user_id):
+    conn = get_db_connection(db_pool)
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT SUM(net_income) FROM fact_income
+                    WHERE income_date = %s AND user_id = %s
+                    """,
+                    (budget_date, user_id)
+                )
+                result = cur.fetchone()
+                return float(result[0]) if result and result[0] is not None else 0.0
+        except Error as e:
+            st.error(f"Failed to fetch net income: {e}")
+            return None
+        finally:
+            release_connection(db_pool, conn)
+    return None
+
+# Function to fetch income statement data for the selected month
+def get_income_statement_data(budget_date, user_id):
+    conn = get_db_connection(db_pool)
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT c.category_name, f.gross_income, f.paid_debt, f.net_income
+                    FROM fact_income f
+                    JOIN dim_category c ON f.category_id = c.id
+                    WHERE f.income_date = %s AND f.user_id = %s
+                    ORDER BY c.category_name
+                    """,
+                    (budget_date, user_id)
+                )
+                results = cur.fetchall()
+                return results  # List of (category_name, gross_income, paid_debt, net_income)
+        except Error as e:
+            st.error(f"Failed to fetch income statement data: {e}")
+            return []
+        finally:
+            release_connection(db_pool, conn)
+    return []
+
 # Get buckets and their categories from dim_bucket and dim_category
 def get_buckets_and_categories(user_id):
     conn = get_db_connection(db_pool)
@@ -24,7 +71,7 @@ def get_buckets_and_categories(user_id):
                     SELECT c.id, c.category_name, b.bucket_name
                     FROM dim_category c
                     JOIN dim_bucket b ON c.bucket_id = b.id
-                    WHERE c.user_id = %s
+                    WHERE c.user_id = %s AND b.bucket_name <> 'Income'
                     ORDER BY b.bucket_name, c.category_name
                 """, (user_id,))
                 categories = cur.fetchall()
@@ -103,7 +150,7 @@ def main():
     user_id = st.session_state.user_id
     user_name = st.session_state.username
 
-    st.title(f"Hi {user_name}, Let's allocate budgets in this month")
+    st.title(f"Hi {user_name}, Let's allocate budgets")
 
     # Initialize session state
     if "allocations" not in st.session_state:
@@ -113,23 +160,27 @@ def main():
     if "total_amount" not in st.session_state:
         st.session_state.total_amount = 0.0
 
+    # Select budget month
+    selected_date = st.date_input("Select Budget Month", value=datetime.now())
+    budget_date = selected_date.replace(day=1)  # First day of the month
+
+    # Fetch net income for the selected month
+    net_income = get_net_income_for_month(budget_date, user_id)
+    if net_income is None:
+        st.error("Failed to fetch net income due to a database error.")
+        return
+    elif net_income == 0.0:
+        st.error("No net income found for the selected month. Please submit your income statement first.")
+        return
+    else:
+        st.write(f"Net Income for {budget_date.strftime('%B %Y')}: {net_income:,.0f} VND")
+        st.session_state.net_income = net_income
+
     # Get buckets and categories
     buckets, buckets_categories = get_buckets_and_categories(user_id=user_id)
     if not buckets or not buckets_categories:
         st.error("No buckets or categories available. Please add them to the database.")
         return
-
-    # Input net income at the top. Net income = total income - monthly debt
-    net_income = st.number_input(
-        "Total Monthly Income (VND)",
-        min_value=0.0,
-        format="%0.0f",
-        step=100.0,
-        key="net_income_input"
-    )
-
-    # Update total income in session state
-    st.session_state.net_income = net_income
 
     # Initialize allocations if categories changed
     current_categories = {(bucket, cat_name): cat_id for bucket in buckets_categories for cat_name, cat_id in buckets_categories[bucket]}
@@ -141,7 +192,7 @@ def main():
         }
 
     # Create tabs for input and summary
-    input_tab, summary_tab = st.tabs(["Budget Input", "Budget Summary"])
+    statement_tab, input_tab, summary_tab = st.tabs(["Income Statement", "Budget Input", "Budget Summary"])
 
     # Input tab
     with input_tab:
@@ -151,7 +202,6 @@ def main():
             with st.expander(bucket_name, expanded=False):
                 for cat_name, cat_id in buckets_categories[bucket_name]:
                     st.subheader(cat_name)
-                    # Use columns for price and quantity to save vertical space
                     col1, col2 = st.columns(2)
                     with col1:
                         price = st.number_input(
@@ -167,7 +217,7 @@ def main():
                             min_value=0,
                             format="%d",
                             step=1,
-                            key=f"quantity_{bucket_name}_{cat_name}_{cat_id}"
+                            key=f"quantity_{bucket_name})_{cat_name}_{cat_id}"
                         )
                     amount = price * quantity
                     st.session_state.allocations[(bucket_name, cat_name, cat_id)] = (cat_id, price, quantity, amount)
@@ -179,7 +229,6 @@ def main():
         
         # Section 1: Aggregated by Category
         st.subheader("by Category")
-        # Create a DataFrame from allocations
         data = {
             "Bucket": [],
             "Category": [],
@@ -194,7 +243,6 @@ def main():
             data["Quantity"].append(f"{quantity}")
             data["Amount (VND)"].append(f"{amount:,.0f}")
 
-        # Add summary row
         data["Bucket"].append("Total")
         data["Category"].append("")
         data["Price (VND)"].append("")
@@ -207,9 +255,8 @@ def main():
             use_container_width=True
         )
 
-        # Section 2: by Bucket
+        # Section 2: Pie-chart by Bucket-Type
         st.subheader("by Bucket")
-        # Aggreate amounts by bucket
         bucket_data = {
             "Bucket": [],
             "Amount (VND)": [],
@@ -221,7 +268,7 @@ def main():
                 for (b, _, _), (_, _, _, amount) in st.session_state.allocations.items() 
                 if b == bucket_name
             )
-            if bucket_total >0: 
+            if bucket_total > 0: 
                 bucket_data["Bucket"].append(bucket_name)
                 bucket_data["Amount (VND)"].append(bucket_total)
                 percentage = (bucket_total / net_income * 100) if net_income > 0 else 0
@@ -229,7 +276,6 @@ def main():
 
         bucket_df = pd.DataFrame(bucket_data)
         if not bucket_df.empty:
-            # Create pie chart
             fig = px.pie(
                 bucket_df,
                 values="Amount (VND)",
@@ -242,19 +288,45 @@ def main():
             fig.update_layout(showlegend=True)
             st.plotly_chart(fig, use_container_width=True)
 
-            # Display bucket summary table below pie chart
             bucket_df["Amount (VND)"] = bucket_df["Amount (VND)"].apply(lambda x: f"{x:,.0f}")
-            bucket_df["Percentage (%)"] = bucket_df["Percentage (%)"].apply(lambda x: f"{x:.1f}")
+            bucket_df["Percentage (%)"] = bucket_df["Percentage (%)"].apply(lambda x: f"{x:.1f}%")
             st.dataframe(
                 bucket_df,
-                use_container_width=True,
-                column_config={
-                    "Amount (VND)": st.column_config.NumberColumn(format="%d"),
-                    "Percentage (%)": st.column_config.NumberColumn(format="%.1f")
-                }
+                use_container_width=True    
+                # column_config={
+                #     "Amount (VND)": st.column_config.NumberColumn(format="%d"),
+                #     "Percentage (%)": st.column_config.NumberColumn(format="%.1f")
+                # }
             )
         else:
             st.info("No allocations made yet. Please add allocations in the Budget Input tab.")
+
+    # Income Statement tab
+    with statement_tab:
+        st.header("Income Statement")
+        income_data = get_income_statement_data(budget_date, user_id)
+        if income_data:
+            # Create DataFrame
+            df = pd.DataFrame(
+                income_data,
+                columns=["Category", "Gross Income (VND)", "Paid Debt (VND)", "Net Income (VND)"]
+            )
+            # Format numbers
+            df["Gross Income (VND)"] = df["Gross Income (VND)"].apply(lambda x: f"{float(x):,.0f}")
+            df["Paid Debt (VND)"] = df["Paid Debt (VND)"].apply(lambda x: f"{float(x):,.0f}")
+            df["Net Income (VND)"] = df["Net Income (VND)"].apply(lambda x: f"{float(x):,.0f}")
+            st.dataframe(
+                df,
+                use_container_width=True,
+                column_config={
+                    "Category": st.column_config.TextColumn("Category"),
+                    "Gross Income (VND)": st.column_config.TextColumn("Gross Income (VND)"),
+                    "Paid Debt (VND)": st.column_config.TextColumn("Paid Debt (VND)"),
+                    "Net Income (VND)": st.column_config.TextColumn("Net Income (VND)")
+                }
+            )
+        else:
+            st.info(f"No income statement data found for {budget_date.strftime('%B %Y')}.")
 
     # Update total amount in session state
     st.session_state.total_amount = total_amount
@@ -263,30 +335,25 @@ def main():
     if total_amount > net_income:
         st.warning(f"Total allocated: {total_amount:,.0f} VND. Please adjust to be below income: {net_income:,.0f} VND.")
     else:
-        percentage_used = (total_amount / net_income * 100) if net_income > 0 else 0
+        percentage_used = (float(total_amount) / float(net_income) * 100) if float(net_income) > 0 else 0
         st.success(f"Total allocated: {total_amount:,.0f} VND of {net_income:,.0f} VND ({percentage_used:.1f}%)")
 
     # Submit button below tabs
     if st.button("Save Budget Allocations"):
-        if net_income <= 0:
-            st.error("Please enter a valid total income greater than 0.")
-        elif total_amount > net_income:
-            st.error("Total allocated amount exceeds the income.")
+        if total_amount > net_income:
+            st.error("Total allocated amount exceeds the net income.")
         else:
-            # Transform allocations for database insertion
             db_allocations = {
                 cat_name: (cat_id, price, quantity, amount)
                 for (bucket_name, cat_name, cat_id), (cat_id, price, quantity, amount) in st.session_state.allocations.items()
             }
-            transaction_date = datetime.now().date()
             success = insert_budget_allocations(
                 db_allocations,
-                transaction_date,
+                budget_date,
                 st.session_state.user_id
             )
             if success:
                 st.success("Budget allocations saved successfully!")
-                # Reset session state
                 st.session_state.allocations = {
                     (bucket, cat_name, cat_id): (cat_id, 0.0, 0, 0.0)
                     for bucket in buckets_categories

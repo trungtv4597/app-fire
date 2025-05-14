@@ -8,6 +8,7 @@ from pages.app_budget_allocating import main as budget_main
 from pages.app_config_setting import main as config_main
 from pages.app_reporting import main as reporting_main
 from pages.app_expense_submitting import main as expense_main
+from pages.app_income_statement import main as income_main
 
 db_pool = init_connection()
 
@@ -101,7 +102,7 @@ def render_log_page():
 if st.session_state.logged_in:
     # Navigation buttons at the top
     st.subheader(f"Welcome, {st.session_state.username.upper()}!")
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
     with col1:
         if st.button("Log"):
             navigate_to("log")
@@ -118,6 +119,9 @@ if st.session_state.logged_in:
         if st.button("Budget"):
             navigate_to("budget")
     with col6:
+        if st.button("Income"):
+            navigate_to("income")
+    with col7:
         if st.button("Logout"):
             st.session_state.logged_in = False
             st.session_state.username = ""
@@ -127,11 +131,12 @@ if st.session_state.logged_in:
 
     # Render the appropriate page based on current_page
     page_functions = {
-    "log": render_log_page,
-    "expense": expense_main,
-    "config": config_main,
-    "reporting": reporting_main,
-    "budget": budget_main
+        "log": render_log_page,
+        "expense": expense_main,
+        "config": config_main,
+        "reporting": reporting_main,
+        "budget": budget_main,
+        "income": income_main
     }
 
     # Call the function or show default message

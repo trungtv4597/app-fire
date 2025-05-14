@@ -3,14 +3,14 @@
 * The app integrates with a [PostgreSQL](https://www.postgresql.org/) database to store and manage data, using [Streamlit](https://streamlit.io/) for an intuitive user interface.
 
 # Core Features
-1. **Income Statement (Under Development)**  
-   Users input their total monthly income through an income statement form. This serves as the starting point for financial planning, capturing all sources of income for the month.
+1. **Income Statement**  
+   Users input their *gross monthly income* by category (e.g., Salary, Maturity CDs) under the "Income" bucket through a dedicated form in `app_income_statement.py`. The app allows users to specify the month and input maturity debt, which is distributed proportionally across income streams based on their contribution to total gross income. The resulting *net income* (gross income minus allocated debt) is calculated and displayed for review.
 
 2. **Maturity Debt Payment**  
-   The app automatically deducts monthly debt obligations from the total income. These debts originate from loans taken from the *Emergency Fund* bucket, a designated reserve for unexpected expenses. The app ensures that maturing debts are prioritized and paid before further budget allocation.
+   The app automatically deducts monthly debt obligations from the total income, as specified in the Income Statement. These debts originate from loans taken from the *Emergency Fund* bucket, a designated reserve for unexpected expenses. The app ensures that maturing debts are prioritized and paid before further budget allocation.
 
 3. **Net Income Calculation**  
-   After settling the maturing debt, the remaining amount is calculated as the *Net Income*. This represents the funds available for allocation to various budgets and expenses.
+   After settling the maturing debt in the Income Statement, the remaining amount is calculated as the *Net Income* for each income stream. This represents the funds available for allocation to various budgets and expenses, stored individually to maintain clarity across multiple income sources.
 
 4. **Budget Allocation**  
    Through `app_budget_allocating.py`, users can distribute their *Net Income* across different budget categories organized under buckets (e.g., Living Expenses, Savings, Entertainment). The app provides a user-friendly interface with expanders, tabs, and a pie chart to visualize allocations, ensuring users stay within their net income limits.
@@ -21,6 +21,17 @@
 The app also includes configuration settings (`app_config_setting.py`) to add categories and locations, and a reporting module (`app_reporting.py`) to provide insights through pivot tables and summary metrics. Together, these features empower users to take control of their personal finances with clarity and precision.
 
 # Upgrade Logs
+
+## v0.2.2: 14/05/2025
+* `app_income_statement.py`: Added Income Statement Feature
+    - Implemented a new app to manage *gross monthly income* by category under the "Income" bucket.
+    - Added form to input income and maturity debt, with proportional debt distribution across income streams.
+    - Separated calculation and saving processes, allowing users to review net income before confirming and saving to the database.
+    - Stored debt as "CASH-IN" transactions in `fact_transaction` and income details (gross, debt, net) in a new `fact_income` table.
+
+* `app_budget_allocating.py`: Enhanced Net Income Integration
+    - Replaced manual `net income input` with automated retrieval from `fact_income` table based on user-selected month (`yyyy-mm`).
+    - Added `date picker` for selecting budget month, aligning `transaction_date` with the first day of the selected month.
 
 ## v0.2.1: 13/05/2025
 * `app.py`: Enhanced Navigation and Changelog
@@ -43,3 +54,5 @@ The app also includes configuration settings (`app_config_setting.py`) to add ca
     - Added bucket-level summary with `pie chart`.
     
 ## v0.1: Initial on 09/05/2025
+
+#

@@ -131,7 +131,7 @@ def render_category_input(bucket_name, cat_name, cat_id):
             key=f"quantity_{bucket_name}_{cat_name}"
         )
     amount = price * quantity
-    st.write(f"= {amount}")
+    # st.write(f"= {amount}")
     if price > 0 or quantity > 0:
         update_data(bucket_name, cat_name, cat_id, price, quantity, amount)
 
@@ -140,9 +140,9 @@ def main():
     check_login()
     initialize_session_state()
     user_id = st.session_state.user_id
-    user_name = st.session_state.username
+    # user_name = st.session_state.username
 
-    st.title(f"{user_name}, Budget Allocator")
+    st.title("Budget Allocator")
 
     # Select budget month
     selected_date = st.date_input("Select Budget Month", value=datetime.now())
@@ -242,31 +242,30 @@ def main():
 
     # Submit button below tabs
     if st.button("Save Budget Allocations"):
-        if st.checkbox("Check to Confirm"):
-            current_category_ids = {item['category_id'] for item in existing_allocations}
-            inserting_allocations = [item for item in st.session_state.data if item['category_id'] not in current_category_ids]
-            for i in inserting_allocations:
-                insert_allocations(
-                    transaction_date=budget_som,
-                    category_id=i.get("category_id"),
-                    price=i.get("price"),
-                    quantity=i.get("quantity"),
-                    amount=i.get("amount"),
-                    user_id=user_id,
-                )
+        current_category_ids = {item['category_id'] for item in existing_allocations}
+        inserting_allocations = [item for item in st.session_state.data if item['category_id'] not in current_category_ids]
+        for i in inserting_allocations:
+            insert_allocations(
+                transaction_date=budget_som,
+                category_id=i.get("category_id"),
+                price=i.get("price"),
+                quantity=i.get("quantity"),
+                amount=i.get("amount"),
+                user_id=user_id,
+            )
 
-            new_category_ids = {item['category_id'] for item in st.session_state.data}
-            updating_allocations = [item for item in existing_allocations if item['category_id'] in new_category_ids]
-            for i in updating_allocations:
-                transaction_id = i.get("transaction_id")
-                category_id_ = i.get("category_id")
-                for j in [item for item in st.session_state.data if item["category_id"] == category_id_]:
-                    new_amount = j.get("amount")
-                    new_price = j.get("price")
-                    new_quantity = j.get("quantity")
-                    update_allocations(transaction_id=transaction_id, amount=new_amount, price=new_price, quantity=new_quantity)
+        new_category_ids = {item['category_id'] for item in st.session_state.data}
+        updating_allocations = [item for item in existing_allocations if item['category_id'] in new_category_ids]
+        for i in updating_allocations:
+            transaction_id = i.get("transaction_id")
+            category_id_ = i.get("category_id")
+            for j in [item for item in st.session_state.data if item["category_id"] == category_id_]:
+                new_amount = j.get("amount")
+                new_price = j.get("price")
+                new_quantity = j.get("quantity")
+                update_allocations(transaction_id=transaction_id, amount=new_amount, price=new_price, quantity=new_quantity)
 
-            st.success("Budget allocations saved successfully.")
+        st.success("Budget allocations saved successfully.")
 
 if __name__ == "__main__":
     main()

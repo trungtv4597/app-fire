@@ -2,4 +2,6 @@
 *.pyc
 __pycache__/
 .streamlit/
-queries/
+queries_dev/
+.ipynb_checkpoints/
+notebooks/

@@ -22,6 +22,13 @@ The app also includes configuration settings (`app_config_setting.py`) to add ca
 
 # Upgrade Logs
 
+## v0.3.0: 16/05/2025:
+* **Introduced Postgres Operator Module**  
+  - Implemented a new `PostgresOperator` class in `postgres_operator.py` to centralize all PostgreSQL database operations (SELECT, INSERT, DELETE) across the application.  
+  - Moved SQL queries to individual `.sql` files stored in a `queries/` directory, enhancing modularity and making query management easier.  
+  - Standardized database interaction by returning results in consistent formats: lists of dictionaries for SELECT queries and affected row counts for INSERT/DELETE operations.  
+  - Centralized error handling within `PostgresOperator`, reducing code duplication in scripts like `app_income_statement.py`, `app_expense_submitting.py`, and `app_budget_allocating.py`. 
+
 ## v0.2.2: 14/05/2025
 * `app_income_statement.py`: Added Income Statement Feature
     - Implemented a new app to manage *gross monthly income* by category under the "Income" bucket.

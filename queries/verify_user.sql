@@ -1,0 +1,1 @@
+SELECT id AS user_id, password FROM dim_user WHERE username = %s;

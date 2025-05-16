@@ -2,8 +2,10 @@ import streamlit as st
 import re
 import os
 
-from utils import init_connection, get_db_connection, release_connection
-# Import main functions from other apps
+from utils import init_connection
+from postgres_operator import PostgresOperator
+
+# Import main functions from other appss
 from pages.app_budget_allocating import main as budget_main
 from pages.app_config_setting import main as config_main
 from pages.app_reporting import main as reporting_main
@@ -11,21 +13,19 @@ from pages.app_expense_submitting import main as expense_main
 from pages.app_income_statement import main as income_main
 
 db_pool = init_connection()
+db_operator = PostgresOperator(db_pool)
 
 def verify_user(username, password):
-    conn = get_db_connection(db_pool)
-    try:
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT id as user_id, password FROM dim_user WHERE username = %s", (username,))
-                result = cur.fetchone()
-                if result:
-                    user_id, comparing_password = result
-                    if password == comparing_password:
-                        return {"user_id": user_id, "username": username}
-    finally:
-        release_connection(db_pool, conn)
+    query_path = 'queries/verify_user.sql'
+    results, error = db_operator.execute_select(query_path, (username,))
+    if error:
+        st.error(f"Failed to login: {error}")
+    elif results:
+        user_id, stored_password = results[0].values()  # First row as tuple
+        if password == stored_password:
+            return {"user_id": user_id, "username": username}
     return None
+
 
 def get_log_from_readme(readme_path="README.md"):
     """
@@ -64,18 +64,6 @@ def get_log_from_readme(readme_path="README.md"):
         st.error(f"Failed to read README.md: {str(e)}")
         return None
 
-
-# Initialize session state
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-    st.session_state.username = ""
-    st.session_state.user_id = None
-if "current_page" not in st.session_state:
-    st.session_state.current_page = "login"  # Default to login page
-
-# Set page title
-st.title("Personal Finance App")
-
 # Navigation function to switch pages
 def navigate_to(page):
     st.session_state.current_page = page
@@ -97,6 +85,17 @@ def render_log_page():
                     st.write("No changes listed.")
     else:
         st.info("No changelog found in README.md !")
+
+# Set page title
+st.title("Personal Finance App")
+
+# Initialize session state
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.username = ""
+    st.session_state.user_id = None
+if "current_page" not in st.session_state:
+    st.session_state.current_page = "login"  # Default to login page
 
 # Handle logged-in state
 if st.session_state.logged_in:

@@ -1,68 +1,40 @@
 import streamlit as st
-from psycopg2 import Error
 
-from utils import init_connection, get_db_connection, release_connection, check_login
+from postgres_operator import PostgresOperator
+from utils import init_connection, check_login
 
 db_pool = init_connection()
+db_operator = PostgresOperator(db_pool)
 
-# Get buckets from dim_bucket
-def get_buckets():
-    conn = get_db_connection(db_pool)
-    if conn:
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT bucket_name as name, id FROM dim_bucket ORDER BY 1")
-                buckets = cur.fetchall()
-                return {name: id for name, id in buckets}
-        except Error as e:
-            st.error(f"Failed to fetch buckets: {e}")
-            return {}
-        finally:
-            release_connection(db_pool, conn)
-    return {}
+def select_buckets():
+    results, error = db_operator.execute_select('queries/select_buckets_all.sql')
+    if error:
+        st.error(f"Failed to fetch buckets: {error}")
+        return {}
+    return {row["name"]: row["id"] for row in results} if results else {}
 
 # Postgres operations
-def insert_category(category_name, bucket_id, user_id):
-    conn = get_db_connection(db_pool)
-    if conn:
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO dim_category (updated_time, category_name, bucket_id, user_id)
-                    VALUES (NOW(), %s, %s, %s)
-                    """, (str(category_name), int(bucket_id), int(user_id))
-                )
-                conn.commit()
-                return True
-        except Error as e:
-            st.error(f"Failed to insert category: {e}")
-            conn.rollback()
-            return False
-        finally:
-            release_connection(db_pool, conn)
-    return False
-
-def insert_location(location_name, user_id):
-    conn = get_db_connection(db_pool)
-    if conn:
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO dim_location (updated_time, location_name, user_id)
-                    VALUES (NOW(), %s, %s)
-                    """, (str(location_name), int(user_id))
-                )
-                conn.commit()
-                return True
-        except Error as e:
-            st.error(f"Failed to insert location: {e}")
-            conn.rollback()
-            return False
-        finally:
-            release_connection(db_pool, conn)
-    return False
+def insert_categorys(category_name, bucket_id, user_id):
+    inserted_rows, error = db_operator.execute_insert(
+        "queries/insert_categories.sql",
+        (category_name, bucket_id, user_id)
+    )
+    if inserted_rows <= 0:
+        st.error(f"Failed to record expenses: {error}")
+        return False
+    else:
+        return True
+    
+def insert_locations(location_name, user_id):
+    inserted_rows, error = db_operator.execute_insert(
+        "queries/insert_locations.sql",
+        (location_name, user_id)
+    )
+    if inserted_rows <= 0:
+        st.error(f"Failed to record expenses: {error}")
+        return False
+    else:
+        return True
 
 # Streamlit UI
 def main():
@@ -76,33 +48,35 @@ def main():
     # Create a form for location input and submission
     with st.form(key="location_form", clear_on_submit=True):
         location_name = st.text_input("New Location Name")
+        
         submit_button = st.form_submit_button("Add Location")
         if submit_button:
             if not location_name:
                 st.error("Please enter a location name.")
             else:
-                if insert_location(location_name, user_id):
-                    st.success(f"Location '{location_name}' added successfully!")
+                if insert_locations(location_name=location_name, user_id=user_id):
+                    st.success(f"Location <{location_name}> added successfully!")
                 else:
                     pass
 
     st.header("Add New Category")
     # Get buckets
-    bucket_dict = get_buckets()
-    if not bucket_dict:
+    buckets = select_buckets()
+    if not buckets:
         st.warning("No buckets available. Please add buckets to the database.")
         return
-    # Create aform for input and submission
+    # Create a form for input and submission
     with st.form(key="category_form", clear_on_submit=True):
-        selected_bucket = st.selectbox("select Bucket", bucket_dict.keys())
+        selected_bucket = st.selectbox("Select Bucket", options=list(buckets.keys()))
         category_name = st.text_input("New Category Name")
+        bucket_id=buckets.get(selected_bucket)
         
         submit_button = st.form_submit_button("Add Category")
         if submit_button:
             if not category_name:
                 st.error("Please enter a category name.")
             else:
-                if insert_category(category_name=category_name, bucket_id=bucket_dict.get(selected_bucket), user_id=user_id):
+                if insert_categorys(category_name=category_name, bucket_id=bucket_id, user_id=user_id):
                     st.success(f"Category <{category_name}> of Bucket <{selected_bucket}> added successfully!")
                 else:
                     pass

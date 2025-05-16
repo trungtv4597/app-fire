@@ -109,7 +109,7 @@ def main():
             total_budget = pivot_df['Budget'].sum()
             total_expenses = pivot_df['Expenses'].sum()
             total_remaining = total_budget + total_expenses
-            percentage_spent = (total_expenses / total_budget * 100) if total_budget > 0 else 0
+            percentage_spent = (abs(total_expenses) / total_budget * 100) if total_budget > 0 else 0
             
             col1, col2, col3, col4 = st.columns(4)
             col1.metric("Total Budget", f"{total_budget:,.0f}")

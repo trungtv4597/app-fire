@@ -41,7 +41,7 @@ def get_log_from_readme(readme_path="README.md"):
         
         # Regular expression to match version headers and their content
         # Matches '## vX.Y.Z: Title' or '## vX.Y: Title' followed by content until next '##' or '#'
-        pattern = r'(##\s*v\d+\.\d+(?:\.\d+)?(?::\s*[^\n]*?\d{2}/\d{2}/\d{4})?\n)(.*?)(?=(##\s*v|#|\Z))'
+        pattern = r"(##\s*v\d+\.\d+(?:\.\d+)?(?::\s*[^\n]*?\d{2}/\d{2}/\d{4}\s*:?)?\n)(.*?)(?=(##\s*v|#|\Z))"
         
         # Find all matches
         matches = re.finditer(pattern, content, re.DOTALL)

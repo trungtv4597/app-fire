@@ -109,8 +109,8 @@ def update_data(bucket_name, category_name, category_id, price, quantity, amount
         'amount': amount
     })
 
-def calculate_total_amount():
-    return sum(item['amount'] for item in st.session_state.data)
+# def calculate_total_amount():
+#     return sum(item['amount'] for item in st.session_state.data)
 
 def main():
     check_login()
@@ -187,7 +187,7 @@ def main():
         if st.session_state.data:
             df = pd.DataFrame(st.session_state.data)
             st.dataframe(df[["bucket_name", "category_name", "price", "quantity", "amount"]])
-            total_amount = calculate_total_amount()
+            total_amount = df["amount"].sum()
             if total_amount > net_income:
                 st.warning(f"Total allocated: {total_amount:,.0f} VND exceeds net income: {net_income:,.0f} VND.")
             else:
@@ -198,6 +198,10 @@ def main():
             pie_data = df.groupby('bucket_name')['amount'].sum().reset_index()
             fig = px.pie(pie_data, values='amount', names='bucket_name', title='Amount by Bucket')
             st.plotly_chart(fig)
+
+            # Debug
+            with st.expander('Session Raw Data', expanded=False):
+                st.write(f"{st.session_state.data}")
         else:
             st.warning("No allocations entered yet.")
 
@@ -214,7 +218,21 @@ def main():
                 amount=i.get("amount"),
                 user_id=user_id,
             )
-        # Note: Update logic for existing allocations could be added here if needed
+        new_category_ids = {item['category_id'] for item in st.session_state.data}
+        updating_allocations = [item for item in existing_allocations if item['category_id'] in new_category_ids]
+        for i in updating_allocations:
+            transaction_id = i.get("transaction_id")
+            category_id_ = i.get("category_id")
+            for j in [item for item in st.session_state.data if item["category_id"] == category_id_]:
+                new_amount = j.get("amount")
+                new_price = j.get("price")
+                new_quantity = j.get("quantity")
+                update_allocations(
+                    transaction_id=transaction_id, 
+                    amount=new_amount, 
+                    price=new_price, 
+                    quantity=new_quantity
+                    )
         st.success("All budget allocations saved successfully.")
 
 if __name__ == "__main__":

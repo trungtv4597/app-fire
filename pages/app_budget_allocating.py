@@ -195,13 +195,15 @@ def main():
                 st.success(f"Total allocated: {total_amount:,.0f} VND of {net_income:,.0f} VND ({percentage_used:.1f}%)")
 
             # Pie chart
-            pie_data = df.groupby('bucket_name')['amount'].sum().reset_index()
+            df_pie = df.copy()
+            df_pie['amount'] = pd.to_numeric(df_pie['amount'], errors='coerce')
+            pie_data = df_pie.groupby('bucket_name')['amount'].sum().reset_index()
             fig = px.pie(pie_data, values='amount', names='bucket_name', title='Amount by Bucket')
-            st.plotly_chart(fig)
+            st.plotly_chart(fig, use_container_width=True)
 
             # Debug
             with st.expander('Session Raw Data', expanded=False):
-                st.write(f"{st.session_state.data}")
+                st.write(f"Session Data: {st.session_state.data} \n Pie Data: {pie_data}")
         else:
             st.warning("No allocations entered yet.")
 

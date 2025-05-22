@@ -5,3 +5,4 @@ __pycache__/
 queries_dev/
 .ipynb_checkpoints/
 notebooks/
+streamlit_demo/

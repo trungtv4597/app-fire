@@ -29,6 +29,16 @@ def select_locations(user_id):
         return {}
     return {row['name']: row['id'] for row in results} if results else {}
 
+def select_latest_transaction_date(user_id):
+    results, error = db_operator.execute_select(
+        'queries/select_latest_transaction_date.sql', 
+        (user_id,)
+    )
+    if error:
+        st.error(f"Failed to fetch data: {error}")
+        return None
+    return results[0]["latest_transaction_date"] if results else None
+
 def insert_expenses(transaction_date, description, amount, category_id, user_id, location_id):
     cash_out_action_id = 4
     inserted_rows, error = db_operator.execute_insert(
@@ -58,6 +68,7 @@ def main():
     # Fetch data
     buckets = select_buckets()
     locations = select_locations(user_id)
+    default_date = select_latest_transaction_date(user_id)
 
     st.title("Expense Tracker")
 
@@ -87,9 +98,9 @@ def main():
         location_name = st.selectbox("Location", options=list(locations.keys()))
         location_id = locations.get(location_name)
         
-        transaction_date = st.date_input("Date", value=datetime.now())
+        transaction_date = st.date_input("Date", value=default_date)
         description = st.text_input("Description")
-        amount = st.number_input("Amount", min_value=1000.0, step=1000.0)
+        amount = st.number_input("Amount", min_value=1000, step=1000)
 
         submitted = st.form_submit_button("Record")
         if submitted:

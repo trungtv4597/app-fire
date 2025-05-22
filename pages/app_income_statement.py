@@ -67,9 +67,8 @@ def main():
     check_login()
 
     user_id = st.session_state.user_id
-    user_name = st.session_state.username
 
-    st.title(f"{user_name}'s Income Statement")
+    st.title("Income Statement")
 
     # Init session state
     initialize_session_state()
@@ -94,9 +93,9 @@ def main():
         for cat_id, cat_name in income_categories:
             gross_incomes[cat_name] = st.number_input(
                 f"{cat_name}",
-                min_value=0.0,
-                step=100000.0,
-                value=0.0,
+                min_value=0,
+                step=100000,
+                value=0,
                 key=f"gross_{cat_id}"
             )
 
@@ -104,9 +103,9 @@ def main():
         st.subheader("Maturity Debt")
         total_debt = st.number_input(
             "Total Maturity Debt for the Month",
-            min_value=0.0,
-            step=1000.0,
-            value=0.0
+            min_value=0,
+            step=1000,
+            value=0
         )
 
         calculate = st.form_submit_button("Calculate the 'Net Income'")

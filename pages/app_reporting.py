@@ -2,60 +2,56 @@ import streamlit as st
 import plotly.graph_objects as go
 import pandas as pd
 from datetime import datetime
-from psycopg2 import Error
 
-from utils import init_connection, get_db_connection, release_connection, check_login
+from postgres_operator import PostgresOperator
+from utils import init_connection, check_login
 
+# Initialize database connection pool and operator
 db_pool = init_connection()
+db_operator = PostgresOperator(db_pool)
 
 # Fetch budget and expense data for the pivot table
-def fetch_expense_data(user_id):
-    conn = get_db_connection(db_pool)
-    if conn:
-        try:
-            cur = conn.cursor()
-            sql_query = """
-            SELECT 
-                b.bucket_name,
-                c.category_name,
-                a.action_name,
-                SUM(t.amount * a.multiply_factor) AS amount
-            FROM fact_transaction AS t
-            LEFT JOIN dim_category AS c ON c.id = t.category_id
-            LEFT JOIN dim_bucket AS b ON b.id = c.bucket_id
-            LEFT JOIN dim_user AS u ON u.id = t.user_id
-            LEFT JOIN dim_action AS a ON a.id = t.action_id
-            WHERE 
-                b.bucket_type = 'Expense'
-                AND u.id = %s
-                AND t.transaction_date >= DATE_TRUNC('month', CURRENT_DATE)
-                AND t.transaction_date < DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month'
-            GROUP BY 1, 2, 3
-            """
-            cur.execute(sql_query, (user_id,))
-            results = cur.fetchall()
-            cur.close()
-            return [(row[0], row[1], row[2], float(row[3])) for row in results]
-        except Error as e:
-            st.error(f"Database error: {e}")
-            return []
-        finally:
-            release_connection(db_pool, conn)
-    return []
+def fetch_expense_data(user_id, selected_month):
+    results, error = db_operator.execute_select(
+        "queries/select_expense_data_by_period.sql",
+        (user_id, selected_month, selected_month,)
+    )
+    if error:
+        st.error(f"Database error: {error}")
+        return []
+    return [(row['bucket_name'], row['category_name'], row['action_name'], float(row['amount'])) for row in results]
+
+def select_latest_transaction_date(user_id):
+    results, error = db_operator.execute_select(
+        'queries/select_latest_transaction_date.sql', 
+        (user_id,)
+    )
+    if error:
+        st.error(f"Failed to fetch data: {error}")
+        return None
+    return results[0]["latest_transaction_date"] if results else None
 
 # Main Streamlit app
 def main():
     check_login()
 
-    st.title(f"Budget Overview for {datetime.now().strftime('%B %Y')}")
+    user_id = st.session_state.user_id
 
-    # Create tabs for Expense and Gauge Charts
+    # Date selection for report filtering
+    default_date = select_latest_transaction_date(user_id)
+    selected_date = st.date_input("Select Report Month", value=default_date)
+    selected_month = selected_date.replace(day=1)  # First day of the month
+    month_str = selected_month.strftime('%B %Y')
+
+    st.title(f"Budget Overview for {month_str}")
+
+    # Create tabs for Expense and other placeholders
     expense_tab, _, _ = st.tabs(["Expense", "Balance Sheet", "FIRE"])
 
     # Expense Tab with Pivot Table
     with expense_tab:
         st.header("Expense Tracking")
-        results = fetch_expense_data(user_id=st.session_state.user_id)
+        results = fetch_expense_data(user_id, selected_month)
         
         if results:
             # Create DataFrame
@@ -69,13 +65,13 @@ def main():
                 fill_value=0
             ).reset_index()
             
-            # Rename columns based on action names (assuming action_id 3 is Budget, 4 is Expense)
+            # Rename columns based on action names
             pivot_df.columns.name = None
-            action_map = {name: name for name in pivot_df.columns[2:]}  # Keep original names
+            action_map = {name: name for name in pivot_df.columns[2:]}
             for col in pivot_df.columns[2:]:
-                if 'cash-in' in col.lower():  # Flexible matching for 'Cash In'
+                if 'cash-in' in col.lower():
                     action_map[col] = 'Budget'
-                elif 'cash-out' in col.lower():  # Flexible matching for 'Cash Out'
+                elif 'cash-out' in col.lower():
                     action_map[col] = 'Expenses'
             pivot_df = pivot_df.rename(columns=action_map)
             
@@ -88,9 +84,8 @@ def main():
             # Calculate Remaining and Percentage Spent
             pivot_df['Remaining'] = pivot_df['Budget'] + pivot_df['Expenses']
             pivot_df['Percentage Spent'] = (
-                (abs(pivot_df['Expenses']) / pivot_df['Budget'] ) * 100
-            )
-            # .where(pivot_df['Budget'] > 0, 1)
+                (abs(pivot_df['Expenses']) / pivot_df['Budget']) * 100
+            ).where(pivot_df['Budget'] > 0, 0)
             
             # Format numbers for display
             display_df = pivot_df.copy()
@@ -117,7 +112,7 @@ def main():
             col3.metric("Total Remaining", f"{total_remaining:,.0f}")
             col4.metric("Percentage Spent", f"{percentage_spent:.2f}%")
         else:
-            st.info("No expense data found for the current month.")
+            st.info(f"No expense data found for {month_str}.")
 
 if __name__ == "__main__":
     main()

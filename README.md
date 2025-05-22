@@ -22,7 +22,7 @@ The app also includes configuration settings (`app_config_setting.py`) to add ca
 
 # Upgrade Logs
 
-## v0.3.0: 16/05/2025:
+## v0.3.0: 16/05/2025
 * **Introduced Postgres Operator Module**  
   - Implemented a new `PostgresOperator` class in `postgres_operator.py` to centralize all PostgreSQL database operations (SELECT, INSERT, DELETE) across the application.  
   - Moved SQL queries to individual `.sql` files stored in a `queries/` directory, enhancing modularity and making query management easier.  

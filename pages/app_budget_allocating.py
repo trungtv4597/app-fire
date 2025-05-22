@@ -198,12 +198,15 @@ def main():
             df_pie = df.copy()
             df_pie['amount'] = pd.to_numeric(df_pie['amount'], errors='coerce')
             pie_data = df_pie.groupby('bucket_name')['amount'].sum().reset_index()
-            fig = px.pie(pie_data, values='amount', names='bucket_name', title='Amount by Bucket')
+            values = pie_data['amount'].tolist()
+            names = pie_data['bucket_name'].tolist()
+            fig = px.pie(values=values, names=names, title='Amount by Bucket')
             st.plotly_chart(fig, use_container_width=True)
 
             # Debug
             with st.expander('Session Raw Data', expanded=False):
                 st.write(f"Session Data: {st.session_state.data} \n Pie Data: {pie_data}")
+                st.dataframe(pie_data, use_container_width=True)
         else:
             st.warning("No allocations entered yet.")
 

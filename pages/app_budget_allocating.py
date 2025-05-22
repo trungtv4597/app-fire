@@ -1,7 +1,9 @@
 import streamlit as st
 from datetime import datetime
 import pandas as pd
-import plotly.express as px
+# import plotly.express as px
+import altair as alt
+
 
 from postgres_operator import PostgresOperator
 from utils import init_connection, check_login
@@ -198,11 +200,18 @@ def main():
             df_pie = df.copy()
             df_pie['amount'] = pd.to_numeric(df_pie['amount'], errors='coerce')
             pie_data = df_pie.groupby('bucket_name')['amount'].sum().reset_index()
-            values = pie_data['amount'].tolist()
-            names = pie_data['bucket_name'].tolist()
-            fig = px.pie(values=values, names=names, title='Amount by Bucket')
-            st.plotly_chart(fig, use_container_width=True)
 
+            chart = alt.Chart(pie_data).mark_arc().encode(
+                theta=alt.Theta(field="amount", type="quantitative"),
+                color=alt.Color(field="bucket_name", type="nominal", scale=alt.Scale(range=['#4B8BBE', '#FFD43B'])),
+                tooltip=['bucket_name', 'amount']
+            ).properties(
+                title='Amount by Bucket',
+                width=400,
+                height=400
+            )
+            st.altair_chart(chart, use_container_width=True)
+            
             # Debug
             with st.expander('Session Raw Data', expanded=False):
                 st.write(f"Session Data: {st.session_state.data} \n Pie Data: {pie_data}")
